@@ -12,45 +12,24 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-func getDesktop() (ud string) {
-	//iexcelize start
-	u, _ := os.UserHomeDir()
-	//mendapatkan path desktop
-	_, err := ioutil.ReadDir(string(u) + `/Desktop`)
-	ud = u + `/Desktop`
-	if err != nil {
-		_, err = ioutil.ReadDir(`E:/Desktop`)
-		ud = `E:/Desktop`
-		if err != nil {
-			_, err = ioutil.ReadDir(`D:/Desktop`)
-			ud = `D:/Desktop`
-			if err != nil {
-				fmt.Println(err, "pertama")
-			}
-		}
-	}
-	return ud
-}
-
 func getTitle(fileSisPtk string) (judul []string) {
-	path := getDesktop() + "/DapoSniff"
+	path := "/Temp" //set path
 	f, err := excelize.OpenFile(path + "/" + fileSisPtk)
-	if err != nil {
-		log.Fatal("ERROR pertama", err.Error())
+	if err == nil {
+		f.SetActiveSheet(0)
+		sheetName := f.GetSheetName(0)
+		//rows, err := f.GetRows(sheetName)
+		rows, err := f.Rows(sheetName)
+		if err != nil {
+			fmt.Println(err, "kedua")
+		}
+		rows.Next()
+		row, err := rows.Columns()
+		if err != nil {
+			fmt.Println(err, "ketiga")
+		}
+		judul = append(judul, row...)
 	}
-	f.SetActiveSheet(0)
-	sheetName := f.GetSheetName(0)
-	//rows, err := f.GetRows(sheetName)
-	rows, err := f.Rows(sheetName)
-	if err != nil {
-		fmt.Println(err, "kedua")
-	}
-	rows.Next()
-	row, err := rows.Columns()
-	if err != nil {
-		fmt.Println(err, "ketiga")
-	}
-	judul = append(judul, row...)
 	/*for _, colCell := range row {
 		//fmt.Println(colCell)
 		judul = append(judul, colCell)
@@ -60,54 +39,58 @@ func getTitle(fileSisPtk string) (judul []string) {
 
 //func getFiles() files[]
 
-func Proses(namadb string) {
-	var guru, tendik, siswa string
-	path := getDesktop() + "/DapoSniff"
-	files, err := ioutil.ReadDir(path)
-	if err != nil {
-		fmt.Println(err, "keempat")
-	}
-	for _, item := range files {
-		a := item.Name()
-
-		switch a[:9] {
-		case "daftar_gu":
-			guru = a
-		case "daftar-gu":
-			guru = a
-		case "daftar-te":
-			tendik = a
-		case "daftar_te":
-			tendik = a
-		case "daftar-pd":
-			siswa = a
-		case "daftar_pd":
-			siswa = a
+func Proses(db *sql.DB) {
+	_, err := os.Stat("/Temp")
+	if err == nil {
+		path := "/Temp/"
+		var guru, tendik, siswa string
+		files, err := ioutil.ReadDir(path)
+		if err != nil {
+			fmt.Println(err, "keempat")
+		}
+		for _, item := range files {
+			a := item.Name()
+			if len(a) > 10 {
+				switch a[:9] {
+				case "daftar_gu":
+					guru = a
+				case "daftar-gu":
+					guru = a
+				case "daftar-te":
+					tendik = a
+				case "daftar_te":
+					tendik = a
+				case "daftar-pd":
+					siswa = a
+				case "daftar_pd":
+					siswa = a
+				}
+			}
+		}
+		//fmt.Println(guru, tendik, siswa)
+		judulTabelPTK := getTitle(guru)
+		judulTabelSiswa := getTitle(siswa)
+		if len(judulTabelPTK) != 0 {
+			createTable(db, "PTK", judulTabelPTK) // Create Database Tables
+			prosesPTK(db, guru)
+			prosesPTK(db, tendik)
+			cleanPTK(db)
+			os.Remove(path + guru)
+			os.Remove(path + tendik)
+		}
+		if len(judulTabelSiswa) != 0 {
+			createTable(db, "SISWA", judulTabelSiswa)
+			prosesSiswa(db, siswa)
+			os.Remove(path + siswa)
 		}
 	}
-	//fmt.Println(guru, tendik, siswa)
-	judulTabelPTK := getTitle(guru)
-	judulTabelSiswa := getTitle(siswa)
-	createTable(namadb, "PTK", judulTabelPTK) // Create Database Tables
-	createTable(namadb, "SISWA", judulTabelSiswa)
-	prosesPTK(namadb, guru)
-	prosesPTK(namadb, tendik)
-	cleanPTK(namadb)
-	prosesSiswa(namadb, siswa)
-	delF(guru)
-	delF(tendik)
-	delF(siswa)
-}
-func delF(namafile string) {
-	path := getDesktop() + "/DapoSniff/"
-	os.Remove(path + namafile)
 }
 
-func cleanPTK(namadb string) {
+func cleanPTK(db *sql.DB) {
 	var totalROW, data, stt string
 	var max string
-	db, _ := sql.Open("sqlite3", "./"+namadb) // Open the created SQLite File
-	defer db.Close()                          // Defer Closing the database
+	/* db, _ := sql.Open("sqlite3", "./"+namadb) // Open the created SQLite File
+	defer db.Close()                          // Defer Closing the database */
 	//query, err := db.Prepare("select count(notebook) from pages where notebook = ?")
 	query, _ := db.Query("SELECT COUNT(*) FROM PTK")
 	for query.Next() {
@@ -131,7 +114,7 @@ func cleanPTK(namadb string) {
 		statement.Exec() // Execute SQL Statements
 		//fmt.Println("row " + strconv.Itoa(i+1) + " cleaned")
 	}
-	fmt.Println("Tabel telah dirapikan dan siap digunakan")
+	//fmt.Println("Tabel telah dirapikan dan siap digunakan")
 }
 
 func CreateDB(namadb string) {
@@ -142,13 +125,13 @@ func CreateDB(namadb string) {
 		log.Fatal("ketiga" + err.Error())
 	}
 	file.Close()
-	fmt.Println(namadb + " telah dibuat")
+	//fmt.Println(namadb + " telah dibuat")
 	// SQLite is a file based database.
 }
 
-func createTable(namadb, SisPtk string, judul []string) {
-	db, _ := sql.Open("sqlite3", "./"+namadb) // Open the created SQLite File
-	defer db.Close()                          // Defer Closing the database
+func createTable(db *sql.DB, SisPtk string, judul []string) {
+	/* 	db, _ := sql.Open("sqlite3", "./"+namadb) // Open the created SQLite File
+	   	defer db.Close()                          // Defer Closing the database */
 
 	text := ""
 	for _, item := range judul {
@@ -164,11 +147,11 @@ func createTable(namadb, SisPtk string, judul []string) {
 		log.Fatal("keempat" + err.Error())
 	}
 	statement.Exec() // Execute SQL Statements
-	fmt.Println("Tabel " + SisPtk + " telah dibuat")
+	//fmt.Println("Tabel " + SisPtk + " telah dibuat")
 }
 
-func prosesPTK(namadb, ptk string) {
-	path := getDesktop() + "/DapoSniff"
+func prosesPTK(db *sql.DB, ptk string) {
+	path := "/Temp"
 	f, err := excelize.OpenFile(path + "/" + ptk)
 	if err != nil {
 		log.Fatal("ERROR kelima", err.Error())
@@ -223,12 +206,12 @@ func prosesPTK(namadb, ptk string) {
 			}
 
 		}
-		insertDataPTK(namadb, dataX)
+		insertDataPTK(db, dataX)
 	}
 }
 
-func prosesSiswa(namadb, siswa string) {
-	path := getDesktop() + "/DapoSniff"
+func prosesSiswa(db *sql.DB, siswa string) {
+	path := "/Temp"
 	f, err := excelize.OpenFile(path + "/" + siswa)
 	if err != nil {
 		log.Fatal("ERROR keenam", err.Error())
@@ -283,14 +266,14 @@ func prosesSiswa(namadb, siswa string) {
 			}
 
 		}
-		insertDataSISWA(namadb, dataX)
+		insertDataSISWA(db, dataX)
 	}
 }
 
 // We are passing db reference connection from main to our method with other parameters
-func insertDataPTK(namadb string, dataX [52]string) {
-	db, _ := sql.Open("sqlite3", "./"+namadb) // Open the created SQLite File
-	defer db.Close()                          // Defer Closing the database
+func insertDataPTK(db *sql.DB, dataX [52]string) {
+	/* db, _ := sql.Open("sqlite3", "./"+namadb) // Open the created SQLite File
+	defer db.Close()                          // Defer Closing the database */
 	//fmt.Println("Inserting data record ...")
 	text := ""
 	for _, item := range dataX {
@@ -310,9 +293,9 @@ func insertDataPTK(namadb string, dataX [52]string) {
 	}
 }
 
-func insertDataSISWA(namadb string, dataX [66]string) {
-	db, _ := sql.Open("sqlite3", "./"+namadb) // Open the created SQLite File
-	defer db.Close()                          // Defer Closing the database
+func insertDataSISWA(db *sql.DB, dataX [66]string) {
+	/* db, _ := sql.Open("sqlite3", "./"+namadb) // Open the created SQLite File
+	defer db.Close()                          // Defer Closing the database */
 	//fmt.Println("Inserting data record ...")
 	text := ""
 	for _, item := range dataX {
